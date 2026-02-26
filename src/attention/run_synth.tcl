@@ -26,11 +26,28 @@ set prefix "${outputDir}/${top}_S_q_${S_q}_S_kv_${S_kv}_d_kq_${d_kq}_d_v_${d_v}_
 # Read sources
 read_verilog    [glob ./src/attention/attention_int.sv]
 read_verilog    [glob ./src/attention/mxoperators/*.sv]
-read_verilog    [glob ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/*.sv]
-read_verilog    [glob ./src/mase/src/mase_components/memory/rtl/*.sv]
-read_verilog    [glob ./src/mase/src/mase_components/common/rtl/*.sv]
-read_verilog    [glob ./src/mase/src/mase_components/cast/rtl/*.sv]
-read_verilog    [glob ./src/mase/src/mase_components/scalar_operators/fixed/rtl/*.sv]
+read_verilog    [glob ./src/attention/mxoperators/lib/*.sv]
+# Explicit mase file list (avoids loading broken files like matrix_bank.sv)
+read_verilog    ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/mxint_div.sv
+read_verilog    ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/mxint_circular.sv
+read_verilog    ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/unpacked_mx_split2_with_data.sv
+read_verilog    ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/mxint_skid_buffer.sv
+read_verilog    ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/or_tree_layer.sv
+read_verilog    ./src/mase/src/mase_components/linear_layers/mxint_operators/rtl/optimized_right_shift.sv
+read_verilog    ./src/mase/src/mase_components/memory/rtl/input_buffer.sv
+read_verilog    ./src/mase/src/mase_components/memory/rtl/blk_mem_gen_0.sv
+read_verilog    ./src/mase/src/mase_components/memory/rtl/fifo.sv
+read_verilog    ./src/mase/src/mase_components/memory/rtl/simple_dual_port_ram.sv
+read_verilog    ./src/mase/src/mase_components/memory/rtl/skid_buffer.sv
+read_verilog    ./src/mase/src/mase_components/common/rtl/split2.sv
+read_verilog    ./src/mase/src/mase_components/common/rtl/join2.sv
+read_verilog    ./src/mase/src/mase_components/common/rtl/unpacked_register_slice.sv
+read_verilog    ./src/mase/src/mase_components/common/rtl/split2_with_data.sv
+read_verilog    ./src/mase/src/mase_components/common/rtl/join_n.sv
+read_verilog    ./src/mase/src/mase_components/common/rtl/register_slice.sv
+read_verilog    ./src/mase/src/mase_components/cast/rtl/signed_clamp.sv
+read_verilog    ./src/mase/src/mase_components/cast/rtl/fixed_rounding.sv
+read_verilog    ./src/mase/src/mase_components/scalar_operators/fixed/rtl/int_div.sv
 read_xdc        [ glob ./src/*.xdc ]
 
 # Synthesis
