@@ -1,0 +1,149 @@
+`ifndef __DOT_GENERAL_FP_SV__
+`define __DOT_GENERAL_FP_SV__
+
+// Note: Compiled via explicit read_verilog in run_synth.tcl
+
+// Handles tree reduction of specific FP blocks reusing add_nrm.
+
+module dot_general_fp #(
+    parameter C = 8,
+    parameter k = 4,
+    parameter bit_width = 8,
+    parameter exp_width = 5,  // Extra param for FP
+    parameter man_width = 2,  // Extra param for FP
+    parameter out_width = 8,
+    parameter scale_width = 8, // Added
+    parameter string USE_DSP = "auto",
+    parameter string ACCUM_METHOD = "KULISCH",
+
+    localparam dp_width = 2*bit_width + $clog2(k), 
+    // Note: dp_width might need tuning for FP accumulation size, 
+    // but using roughly standard expansion is safe for now.
+    
+    localparam block_count = C/k,
+    localparam tree_depth = $clog2(block_count)
+)(
+    input  logic i_clk,
+    input  logic signed [bit_width-1:0] i_X     [C],
+    input  logic signed [bit_width-1:0] i_Y     [C],
+    input  logic             [scale_width-1:0] i_S     [block_count],
+    input  logic             [scale_width-1:0] i_T     [block_count],
+    output logic               [out_width-1:0] o_dp,
+    output logic             [scale_width-1:0] o_scale
+);
+
+    // Sum within blocks
+    logic signed [dp_width-1:0] dot_out [block_count];
+
+    for(genvar i=0; i<block_count; i++) begin
+        dot_fp #(
+            .exp_width(exp_width),
+            .man_width(man_width),
+            .k(k),
+            // We override bit_width derived parameters if needed, 
+            // but dot_fp derives them from exp/man/k. A mismatch check might be good.
+            .bit_width(bit_width),
+            .out_width(dp_width),
+            .USE_DSP(USE_DSP),
+            .ACCUM_METHOD(ACCUM_METHOD)
+        ) u_dot_fp (
+            .i_clk(i_clk),
+            .i_vec_a(i_X[i*k +: k]),
+            .i_vec_b(i_Y[i*k +: k]),
+            .o_dp(dot_out[i])
+        );
+    end
+
+    // Sum scales
+    logic [scale_width-1:0] dot_scales [block_count];
+
+    for(genvar i=0; i<(block_count); i++) begin
+        assign dot_scales[i] = i_S[i] + i_T[i];
+    end
+    
+    // Latency compensation for dot_fp pipeline
+    // dot_fp latency = 1 (mult reg) + $clog2(k) (vec_sum_int tree)
+    localparam DOT_FP_LATENCY = 1 + $clog2(k);
+    logic [scale_width-1:0] dot_scales_delayed [block_count];
+    
+    // Shift register to delay scales
+    if (DOT_FP_LATENCY > 0) begin : scale_delay
+        logic [scale_width-1:0] delay_line [DOT_FP_LATENCY][block_count];
+        
+        always_ff @(posedge i_clk) begin
+            delay_line[0] <= dot_scales;
+            for(int l=1; l<DOT_FP_LATENCY; l++) begin
+                delay_line[l] <= delay_line[l-1];
+            end
+        end
+        assign dot_scales_delayed = delay_line[DOT_FP_LATENCY-1];
+    end else begin
+        assign dot_scales_delayed = dot_scales;
+    end
+
+    // Sum across blocks (Tree Reduction)
+    // We reuse the existing tree structure from dot_general_int
+    // because add_nrm is generic enough to handle (Value, Scale) + (Value, Scale)
+    // regardless of whether Value came from Int or FP dot product.
+    generate
+        if (tree_depth > 0) begin
+            for(genvar i=0; i<tree_depth; i++) begin : tree_add
+                // Declare adders.
+                logic signed [dp_width-1:0] p0_add0   [block_count>>(1+i)];
+                logic signed [dp_width-1:0] p0_add1   [block_count>>(1+i)];
+                
+                logic signed [dp_width-1:0] p0_sum_comb    [block_count>>(1+i)];
+                logic signed [dp_width-1:0] p0_sum         [block_count>>(1+i)];
+                
+                logic signed     [scale_width-1:0] p0_scale0 [block_count>>(1+i)];
+                logic signed     [scale_width-1:0] p0_scale1 [block_count>>(1+i)];
+                
+                logic signed     [scale_width-1:0] p0_scale_comb  [block_count>>(1+i)];
+                logic signed     [scale_width-1:0] p0_scale       [block_count>>(1+i)];
+
+                for(genvar j=0; j<block_count>>(1+i); j++) begin
+                    add_nrm #(
+                        .int_w(dp_width)
+                    ) u_add_nrm (
+                        .i_op0(p0_add0[j]),
+                        .i_op1(p0_add1[j]),
+                        .i_scale0(p0_scale0[j]),
+                        .i_scale1(p0_scale1[j]),
+                        .out(p0_sum_comb[j]),
+                        .o_scale(p0_scale_comb[j])
+                    );
+                    
+                    always_ff @(posedge i_clk) begin
+                        p0_sum[j]   <= p0_sum_comb[j];
+                        p0_scale[j] <= p0_scale_comb[j];
+                    end
+                end
+
+                // Connections to previous layers.
+                if(i != 0) begin
+                    for(genvar j=0; j<(block_count>>(1+i)); j++) begin
+                        assign p0_add0[j] = tree_add[i-1].p0_sum[2*j];
+                        assign p0_add1[j] = tree_add[i-1].p0_sum[2*j+1];
+                        assign p0_scale0[j] = tree_add[i-1].p0_scale[2*j];
+                        assign p0_scale1[j] = tree_add[i-1].p0_scale[2*j+1];
+                    end
+                end else begin
+                    for(genvar j=0; j<(block_count>>(1+i)); j++) begin
+                        assign p0_add0[j] = dot_out[2*j];
+                        assign p0_add1[j] = dot_out[2*j+1];
+                        assign p0_scale0[j] = dot_scales_delayed[2*j];
+                        assign p0_scale1[j] = dot_scales_delayed[2*j+1];
+                    end
+                end
+            end
+            assign o_dp = tree_add[tree_depth-1].p0_sum[0][out_width-1:0]; // Truncate to out_width
+            assign o_scale = tree_add[tree_depth-1].p0_scale[0];
+        end else begin
+            assign o_dp = dot_out[0][out_width-1:0];
+            assign o_scale = dot_scales_delayed[0];
+        end
+    endgenerate
+
+endmodule
+
+`endif // __DOT_GENERAL_FP_SV__

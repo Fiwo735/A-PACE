@@ -1,0 +1,33 @@
+TestProject
+jgproject
+temp
+.vscode
+doc/img
+.Xil
+vivado*
+*.log
+venv/
+xsim.dir
+tb/attention_test
+attention_test
+src/attention/attention_int/synth_output
+*.pb
+.gen
+quant/quant_acc/build
+quant/quant_acc/*.egg-info
+
+# Vivado Generated Files
+*.jou
+*.wdb
+*.dcp
+*.str
+*.lpr
+
+# Synthesis Outputs
+src/attention/synth_logs/
+src/attention/synth_output_int/
+src/attention/synth_output_fp/
+*.tmp
+*.backup
+
+__pycache__
